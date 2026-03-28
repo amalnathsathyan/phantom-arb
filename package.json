@@ -1,0 +1,27 @@
+{
+  "name": "photonarb",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "npx tsx src/agent.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+
+  "dependencies": {
+    "@defuse-protocol/one-click-sdk-typescript": "^0.1.17",
+    "dotenv": "^17.3.1",
+    "ethers": "^6.16.0",
+    "express": "^5.2.1",
+    "near-api-js": "^7.2.0",
+    "winston": "^3.19.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.5.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  }
+}
