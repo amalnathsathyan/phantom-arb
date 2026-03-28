@@ -5,7 +5,7 @@ import path from 'path';
 const app = express();
 const opportunities: Opportunity[] = [];
 const scanLog: { ts: Date; pairs: number; found: number }[] = [];
-const recentQuotes: { routeSymbols: string[]; routeChains: string[]; spreadBps: number; estimatedProfitUSD: number; ts: Date }[] = [];
+const recentQuotes: { routeSymbols: string[]; routeChains: string[]; spreadBps: number; estimatedProfitUSD: number; detectedAt: Date }[] = [];
 
 export function recordOpportunity(o: Opportunity) {
   opportunities.unshift(o);

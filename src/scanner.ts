@@ -104,16 +104,33 @@ export async function scanDFS(
 
     if (state.depth >= maxHops) return;
 
-    const candidates = (state.depth === maxHops - 1) 
-       ? baseTokensToMatches 
-       : volatileTokens;
+    // Prune combinations: force closing loop on last hop
+    let candidates = (state.depth === maxHops - 1) 
+       ? [...baseTokensToMatches] 
+       : [...volatileTokens];
+       
+    // Shuffle candidates so the DFS doesn't get stuck doing 1000 'ETH' permutations before seeing 'PEPE'
+    candidates.sort(() => Math.random() - 0.5);
 
     for (const nextToken of candidates) {
       if (nextToken.defuse_asset_id === state.currentToken.defuse_asset_id) continue;
       
+      // CRITICAL PRUNING: Do not swap the same symbol to a different chain (e.g. ETH(Arb) -> ETH(Op)).
+      // This is just a bridge and guarantees a negative spread. We only want pure cross-asset arbitrage.
+      // Exception: We must allow returning to the base asset at the very end.
+      if (nextToken.symbol === state.currentToken.symbol) {
+         if (state.depth !== maxHops - 1) continue; 
+      }
+      
+      // Also prevent visiting a symbol we ALREADY visited (e.g. ETH -> SOL -> ETH).
+      if (state.routeSymbols.includes(nextToken.symbol) && state.depth !== maxHops - 1) {
+          continue;
+      }
+
       const q = await dryQuote(state.currentToken.defuse_asset_id, nextToken.defuse_asset_id, state.currentAmountAtomic);
       if (!q?.estimatedOutput) continue;
 
+      // Pruning: if we bleed more than 10% in a single hop, prune branch entirely
       const inVal = (Number(state.currentAmountAtomic) / Math.pow(10, state.currentToken.decimals)) * (state.currentToken.price || 1);
       const outVal = (Number(q.estimatedOutput) / Math.pow(10, nextToken.decimals)) * (nextToken.price || 1);
       

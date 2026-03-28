@@ -23,6 +23,9 @@ async function runScanCycle(tokensBySymbol: Map<string, Token[]>) {
     }
   }
 
+  // Shuffle base tokens so it jumps across USDC, USDT, NEAR organically
+  baseTokens.sort(() => Math.random() - 0.5);
+
   for (const startToken of baseTokens) {
     const probe = probeAtomic(startToken.price || 1, startToken.decimals);
     

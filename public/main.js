@@ -85,7 +85,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!quotes || quotes.length === 0) return;
     
     els.quotesBox.innerHTML = quotes.slice(0, 30).map(q => {
-      const time = new Date(q.ts).toLocaleTimeString();
+      const time = new Date(q.detectedAt || q.ts).toLocaleTimeString();
       const spreadColor = q.spreadBps > 0 ? '#10b981' : (q.spreadBps < -20 ? '#ef4444' : '#9ca3af');
       const profitStr = q.spreadBps > 0 ? `+$${q.estimatedProfitUSD.toFixed(3)}` : `-$${Math.abs(q.estimatedProfitUSD).toFixed(3)}`;
       
