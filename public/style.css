@@ -126,9 +126,12 @@ body {
 .stat-value.highlight { color: var(--accent-primary); text-shadow: 0 0 20px var(--accent-glow); }
 
 /* Main layout */
-.dashboard-content { display: grid; grid-template-columns: 2fr 1fr; gap: 30px; }
+.dashboard-content { display: grid; grid-template-columns: 7fr 3fr; gap: 30px; align-items: start; }
+.logs-section { grid-column: 1 / -1; } /* Span full width on bottom */
+
 @media (max-width: 1024px) {
   .dashboard-content { grid-template-columns: 1fr; }
+  .logs-section { grid-column: 1; }
 }
 
 .section-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 16px; padding: 0 8px; }

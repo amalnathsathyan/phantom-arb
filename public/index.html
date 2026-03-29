@@ -101,15 +101,27 @@
         </div>
       </section>
 
-      <section class="logs-section">
-        <div class="section-header">
-          <h2>Agent Execution Log</h2>
-        </div>
-        <div class="log-container glass-panel" id="scan-log">
-          <!-- Logs injected here -->
-          <div class="log-entry empty-state">Initializing AI sequence...</div>
-        </div>
-      </section>
+      <div style="display: flex; gap: 20px;">
+        <section class="logs-section" style="flex: 1;">
+          <div class="section-header">
+            <h2>Agent Execution Log</h2>
+          </div>
+          <div class="log-container glass-panel" id="scan-log">
+            <!-- Logs injected here -->
+            <div class="log-entry empty-state">Initializing AI sequence...</div>
+          </div>
+        </section>
+
+        <section class="execution-section" style="flex: 1;">
+          <div class="section-header">
+            <h2 style="color: #ff6b6b;">🔥 IronClaw Intent Vault</h2>
+          </div>
+          <div class="log-container glass-panel" id="execution-log" style="background: rgba(45, 15, 15, 0.4);">
+            <!-- Ironclaw attempts injected here -->
+            <div class="log-entry empty-state">Waiting for viable arb to trigger payload constraints...</div>
+          </div>
+        </section>
+      </div>
     </main>
   </div>
 

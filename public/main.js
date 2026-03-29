@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
       updateTable(data.opportunities);
       updateQuotes(data.recentQuotes);
       updateLogs(data.scanLog);
+      updateExecutions(data.executionAttempts);
       
       els.updateTime.textContent = `Last update: ${new Date().toLocaleTimeString()}`;
       els.status.textContent = 'Live Data';
@@ -90,17 +91,17 @@ document.addEventListener('DOMContentLoaded', () => {
       const profitStr = q.spreadBps > 0 ? `+$${q.estimatedProfitUSD.toFixed(3)}` : `-$${Math.abs(q.estimatedProfitUSD).toFixed(3)}`;
       
       return `
-        <div class="log-entry" style="display:flex; justify-content:space-between; align-items:flex-end;">
-          <div>
+        <div class="log-entry" style="display:flex; flex-direction:column; gap: 8px;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
             <div class="log-time">[${time}] Quote Engine</div>
-            <div class="log-metrics">
-               <span class="asset-name">${q.routeSymbols.join(' -> ')}</span> 
-               <span class="dim-text">${q.routeChains.join(' → ')}</span>
+            <div style="text-align:right">
+              <div style="color:${spreadColor}; font-weight:bold">${q.spreadBps.toFixed(1)} bps</div>
+              <div class="dim-text">${profitStr}</div>
             </div>
           </div>
-          <div style="text-align:right">
-            <div style="color:${spreadColor}; font-weight:bold">${q.spreadBps.toFixed(1)} bps</div>
-            <div class="dim-text">${profitStr}</div>
+          <div class="log-metrics" style="display:flex; flex-direction:column; gap: 2px;">
+             <span class="asset-name" style="word-break: break-all;">${q.routeSymbols.join(' -> ')}</span> 
+             <span class="dim-text" style="word-break: break-all;">${q.routeChains.join(' → ')}</span>
           </div>
         </div>
       `;
@@ -128,6 +129,35 @@ document.addEventListener('DOMContentLoaded', () => {
   function formatNum(str) {
     if (!str || str.length < 5) return str;
     return str.slice(0, 5) + '...' + str.slice(-4);
+  }
+
+  function updateExecutions(attempts) {
+    const container = document.getElementById('execution-log');
+    if (!container) return;
+    
+    if (!attempts || attempts.length === 0) {
+      container.innerHTML = '<div class="log-entry empty-state">Waiting for executable opportunity from AI Core...</div>';
+      return;
+    }
+    
+    container.innerHTML = attempts.map(a => {
+      const color = a.status === 'SUCCESS' ? '#4caf50' : '#ff4444';
+      const indicator = a.status === 'SUCCESS' ? '✓' : '✖';
+      
+      return `
+        <div class="log-entry" style="border-left: 3px solid ${color};">
+          <div class="log-time" style="display:flex; justify-content:space-between;">
+             <span>[${new Date(a.ts).toLocaleTimeString()}] IronClaw Signature Attempt</span>
+             <span style="color: ${color}; font-weight:bold;">${indicator} ${a.status}</span>
+          </div>
+          <div class="log-metrics" style="display:flex; flex-direction:column; gap: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 5px;">
+             <div>Route: <strong>${a.routeSymbols.join(' ➔ ')}</strong></div>
+             ${a.txHash ? `<div style="color: #64ffda;">TX HASH: ${a.txHash}</div>` : ''}
+             ${a.errorMsg ? `<div style="color: #ff6b6b;">RPC ERROR: ${a.errorMsg}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
   }
 
   // Interactive dummy function for demo

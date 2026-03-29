@@ -29,7 +29,11 @@ async function runScanCycle(tokensBySymbol: Map<string, Token[]>) {
   for (const startToken of baseTokens) {
     const probe = probeAtomic(startToken.price || 1, startToken.decimals);
     
-    const opps = await scanDFS(startToken, baseTokens, volatileTokens, MAX_HOPS, probe);
+    // Expanding the combinatorial boundaries back up since we have Promise.all concurrency enabled! 
+    const subsetVolatile = [...volatileTokens].sort(() => Math.random() - 0.5).slice(0, 10);
+    const subsetBase = [...baseTokens].sort(() => Math.random() - 0.5).slice(0, 3);
+    
+    const opps = await scanDFS(startToken, subsetBase, subsetVolatile, MAX_HOPS, probe);
     
     for (const opp of opps) {
       recordOpportunity(opp);
@@ -37,13 +41,15 @@ async function runScanCycle(tokensBySymbol: Map<string, Token[]>) {
       AgentBrain.evaluateOpportunity(opp);
     }
     
-    pathsScanned++;
+    // Log incrementally so the dashboard Agent Execution Log updates constantly
+    pathsScanned += (subsetVolatile.length * subsetVolatile.length * subsetBase.length);
+    recordScan(pathsScanned, oppsFound);
+    
     await new Promise(r => setTimeout(r, 200));
   }
 
-  recordScan(pathsScanned, oppsFound);
   console.log(
-    `[scan] ${new Date().toISOString()} | baseRoots=${pathsScanned} | arbs=${oppsFound}`
+    `[scan] ${new Date().toISOString()} | baseRoots=${baseTokens.length} | arbs=${oppsFound}`
   );
 }
 

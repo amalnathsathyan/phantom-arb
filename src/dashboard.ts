@@ -6,6 +6,16 @@ const app = express();
 const opportunities: Opportunity[] = [];
 const scanLog: { ts: Date; pairs: number; found: number }[] = [];
 const recentQuotes: { routeSymbols: string[]; routeChains: string[]; spreadBps: number; estimatedProfitUSD: number; detectedAt: Date }[] = [];
+export interface ExecutionAttempt {
+  id: string;
+  ts: Date;
+  routeSymbols: string[];
+  amountAtomic: string;
+  status: 'PENDING' | 'FAILED' | 'SUCCESS';
+  txHash?: string;
+  errorMsg?: string;
+}
+const executionAttempts: ExecutionAttempt[] = [];
 
 export function recordOpportunity(o: Opportunity) {
   opportunities.unshift(o);
@@ -22,6 +32,11 @@ export function recordScan(pairs: number, found: number) {
   if (scanLog.length > 100) scanLog.pop();
 }
 
+export function recordAttempt(attempt: ExecutionAttempt) {
+  executionAttempts.unshift(attempt);
+  if (executionAttempts.length > 50) executionAttempts.pop();
+}
+
 // Serve the frontend
 app.use(express.static(path.join(process.cwd(), 'public')));
 
@@ -36,7 +51,8 @@ app.get('/api/stats', (_req, res) => {
     scanHistoryCount: scanLog.length,
     opportunities,
     scanLog,
-    recentQuotes
+    recentQuotes,
+    executionAttempts
   });
 });
 

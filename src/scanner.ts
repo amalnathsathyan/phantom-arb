@@ -13,41 +13,64 @@ export interface Hop {
 }
 
 export interface Opportunity {
-  routeSymbols: string[]; 
-  routeChains: string[];  
+  routeSymbols: string[];
+  routeChains: string[];
   hops: Hop[];
   initialProbeAtomic: string;
   finalOutputAtomic: string;
-  spreadBps:          number;
+  spreadBps: number;
   estimatedProfitUSD: number;
-  detectedAt:         Date;
+  detectedAt: Date;
+  defuseAssetIn: string;
+  defuseAssetOut: string;
 }
 
 // ── single dry quote ──────────────────────────────────────────────
 async function dryQuote(
-  originAsset:      string,
+  originAsset: string,
   destinationAsset: string,
-  amount:           string,
+  amount: string,
 ): Promise<{ estimatedOutput: string } | null> {
   try {
     const res = await OneClickService.getQuote({
-      dry:              true,
-      swapType:         QuoteRequest.swapType.EXACT_INPUT,
+      dry: true,
+      swapType: QuoteRequest.swapType.EXACT_INPUT,
       originAsset,
       destinationAsset,
       amount,
       slippageTolerance: 200,
-
-      depositType:   QuoteRequest.depositType.INTENTS,
-      recipient:     CONFIG.NEAR_ACCOUNT,
+      depositType: QuoteRequest.depositType.INTENTS,
+      recipient: CONFIG.NEAR_ACCOUNT,
       recipientType: QuoteRequest.recipientType.INTENTS,
-      refundTo:      CONFIG.NEAR_ACCOUNT,
-      refundType:    QuoteRequest.refundType.INTENTS,
-      deadline:      getDeadline(),
+      refundTo: CONFIG.NEAR_ACCOUNT,
+      refundType: QuoteRequest.refundType.INTENTS,
+      deadline: getDeadline(),
     });
 
-    return { estimatedOutput: res.quote.amountOut };
+    // The SDK response uses minDestinationAmount as the authoritative output amount.
+    // amountOut is a secondary alias — check both defensively.
+    const out =
+      (res.quote as any)?.minDestinationAmount ??
+      (res.quote as any)?.amountOut ??
+      (res as any)?.minDestinationAmount ??
+      (res as any)?.amountOut;
+
+    if (!out) {
+      // Print response keys once so we can detect future SDK field renames fast
+      const keys = Object.keys((res.quote ?? res) as any).join(', ');
+      console.warn(`[Scanner] dryQuote: no output amount field. Available keys: ${keys}`);
+      return null;
+    }
+
+    return { estimatedOutput: String(out) };
   } catch (e: any) {
+    const msg: string = e?.body?.message ?? e?.message ?? String(e);
+
+    // "No liquidity available" is normal for most pairs — don't flood the log.
+    // All other errors (auth, malformed request, rate-limit 429) surface immediately.
+    if (msg !== 'No liquidity available') {
+      console.error(`[Scanner Error] ${originAsset} → ${destinationAsset} (${amount}): ${msg}`);
+    }
     return null;
   }
 }
@@ -61,27 +84,28 @@ interface DfsState {
   depth: number;
 }
 
-// ── graph search scan ───────────────────────────────────────────────
+// ── DFS graph scan ────────────────────────────────────────────────
 export async function scanDFS(
   baseTokenFrom: Token,
   baseTokensToMatches: Token[],
   volatileTokens: Token[],
   maxHops: number,
-  probeAtomic: string
+  probeAtomicAmt: string,
 ): Promise<Opportunity[]> {
   const found: Opportunity[] = [];
-  
+
   async function search(state: DfsState) {
-    if (state.depth > 1 && baseTokensToMatches.some(t => t.defuse_asset_id === state.currentToken.defuse_asset_id)) {
-      const inputFloat = Number(probeAtomic) / Math.pow(10, baseTokenFrom.decimals);
+    // Terminal: back to a base token after at least one hop
+    if (
+      state.depth > 1 &&
+      baseTokensToMatches.some(t => t.defuse_asset_id === state.currentToken.defuse_asset_id)
+    ) {
+      const inputFloat = Number(probeAtomicAmt) / Math.pow(10, baseTokenFrom.decimals);
       const outputFloat = Number(state.currentAmountAtomic) / Math.pow(10, state.currentToken.decimals);
-      
-      let spreadBps = 0;
-      if (outputFloat > inputFloat) {
-        spreadBps = ((outputFloat - inputFloat) * 10000) / inputFloat;
-      } else {
-        spreadBps = -((inputFloat - outputFloat) * 10000) / inputFloat;
-      }
+
+      const spreadBps = inputFloat > 0
+        ? ((outputFloat - inputFloat) * 10_000) / inputFloat
+        : 0;
 
       const estimatedProfitUSD = (outputFloat - inputFloat) * (baseTokenFrom.price || 1);
 
@@ -89,52 +113,52 @@ export async function scanDFS(
         routeSymbols: state.routeSymbols,
         routeChains: state.routeChains,
         hops: state.hops,
-        initialProbeAtomic: probeAtomic,
+        initialProbeAtomic: probeAtomicAmt,
         finalOutputAtomic: state.currentAmountAtomic,
         spreadBps,
         estimatedProfitUSD,
-        detectedAt: new Date()
+        detectedAt: new Date(),
+        defuseAssetIn: baseTokenFrom.defuse_asset_id,
+        defuseAssetOut: state.currentToken.defuse_asset_id,
       };
-      
-      recordQuote(opp); 
-      
-      if (spreadBps >= CONFIG.MIN_PROFIT_BPS) found.push(opp);
-      return; 
+
+      recordQuote(opp);
+
+      if (spreadBps > 0 && spreadBps >= Math.max(0, CONFIG.MIN_PROFIT_BPS)) {
+        found.push(opp);
+      }
+      return;
     }
 
     if (state.depth >= maxHops) return;
 
-    // Prune combinations: force closing loop on last hop
-    let candidates = (state.depth === maxHops - 1) 
-       ? [...baseTokensToMatches] 
-       : [...volatileTokens];
-       
-    // Shuffle candidates so the DFS doesn't get stuck doing 1000 'ETH' permutations before seeing 'PEPE'
+    const candidates = (state.depth === maxHops - 1)
+      ? [...baseTokensToMatches]
+      : [...volatileTokens];
+
+    // Randomise to avoid systematic ordering bias
     candidates.sort(() => Math.random() - 0.5);
 
-    for (const nextToken of candidates) {
-      if (nextToken.defuse_asset_id === state.currentToken.defuse_asset_id) continue;
-      
-      // CRITICAL PRUNING: Do not swap the same symbol to a different chain (e.g. ETH(Arb) -> ETH(Op)).
-      // This is just a bridge and guarantees a negative spread. We only want pure cross-asset arbitrage.
-      // Exception: We must allow returning to the base asset at the very end.
-      if (nextToken.symbol === state.currentToken.symbol) {
-         if (state.depth !== maxHops - 1) continue; 
-      }
-      
-      // Also prevent visiting a symbol we ALREADY visited (e.g. ETH -> SOL -> ETH).
-      if (state.routeSymbols.includes(nextToken.symbol) && state.depth !== maxHops - 1) {
-          continue;
-      }
+    await Promise.all(candidates.map(async (nextToken) => {
+      if (nextToken.defuse_asset_id === state.currentToken.defuse_asset_id) return;
 
-      const q = await dryQuote(state.currentToken.defuse_asset_id, nextToken.defuse_asset_id, state.currentAmountAtomic);
-      if (!q?.estimatedOutput) continue;
+      // Skip same-symbol cross-chain bridge unless it's the final return hop
+      if (nextToken.symbol === state.currentToken.symbol && state.depth !== maxHops - 1) return;
 
-      // Pruning: if we bleed more than 10% in a single hop, prune branch entirely
+      // Don't revisit symbols mid-path (prevents loops)
+      if (state.routeSymbols.includes(nextToken.symbol) && state.depth !== maxHops - 1) return;
+
+      const q = await dryQuote(
+        state.currentToken.defuse_asset_id,
+        nextToken.defuse_asset_id,
+        state.currentAmountAtomic,
+      );
+      if (!q?.estimatedOutput) return;
+
+      // Prune legs that lose more than 10% — clearly not profitable
       const inVal = (Number(state.currentAmountAtomic) / Math.pow(10, state.currentToken.decimals)) * (state.currentToken.price || 1);
       const outVal = (Number(q.estimatedOutput) / Math.pow(10, nextToken.decimals)) * (nextToken.price || 1);
-      
-      if (inVal > 0 && (outVal / inVal) < 0.90) continue;
+      if (inVal > 0 && (outVal / inVal) < 0.90) return;
 
       await search({
         currentToken: nextToken,
@@ -147,27 +171,30 @@ export async function scanDFS(
           toSymbol: nextToken.symbol,
           toChain: nextToken.blockchain,
           amountIn: state.currentAmountAtomic,
-          amountOut: q.estimatedOutput
+          amountOut: q.estimatedOutput,
         }],
-        depth: state.depth + 1
+        depth: state.depth + 1,
       });
-    }
+    }));
   }
 
   await search({
     currentToken: baseTokenFrom,
-    currentAmountAtomic: probeAtomic,
+    currentAmountAtomic: probeAtomicAmt,
     routeSymbols: [baseTokenFrom.symbol],
     routeChains: [baseTokenFrom.blockchain],
     hops: [],
-    depth: 0
+    depth: 0,
   });
 
   return found;
 }
 
-// ── probe amount in atomic units for a given symbol ───────────────
+// ── Probe amount in atomic units ──────────────────────────────────
+// Clamped to [$10, $500] so a missing price never sends a 100-ETH quote.
 export function probeAtomic(price: number, decimals: number): string {
-  const units  = CONFIG.PROBE_AMOUNT_USD / (price || 1);
+  const effectivePrice = price > 0 ? price : 1;
+  const clampedUSD = Math.min(500, Math.max(10, CONFIG.PROBE_AMOUNT_USD));
+  const units = clampedUSD / effectivePrice;
   return BigInt(Math.floor(units * Math.pow(10, decimals))).toString();
 }
